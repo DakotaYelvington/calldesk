@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallDesk</title>
+</head>
+<body>
+    
+
+<h1>CallDesk</h1>
+<div id = call-list>Loading Calls...</div>
+
+<script>
+    fetch("http://localhost:8000/calls")
+        .then(response => response.json())
+        .then(calls => {
+        
+
+        const list = document.getElementById("call-list")
+
+        list.innerHTML = ""
+
+        calls.forEach(call => {
+            const card = document.createElement("div")
+
+            card.innerHTML = `
+            <p>📞 ${call.caller_number}</p>
+            <p>Status: ${call.status}</p>
+            <p>Assigned to: ${call.assigned_to}</p>
+            <p>Notes: ${call.notes}</p>
+            <button onclick = "assignCall(${call.id}, 'Mike')">
+                Assign to Mike
+            </button>
+            <button onclick = "markSpam(${call.id})">
+                Mark Spam
+            </button>
+            <hr>
+        `
+
+        list.appendChild(card)
+        })
+    })
+
+    function assignCall(callId, employee) {
+        fetch(`http://localhost:8000/calls/${callId}/assign`, {
+            method:"PUT",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({employee: employee})
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message)
+            location.reload()
+        })
+    }
+
+    function markSpam(callId) {
+        fetch(`http://localhost:8000/calls/${callId}/mark-spam`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json"
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message)
+            location.reload()
+        })
+    }
+</script>
+</body>
+</html>
