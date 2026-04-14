@@ -1,5 +1,5 @@
 from fastapi import FastAPI , HTTPException, Form
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, String, Integer, Text
@@ -9,7 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 
-load_dotenv
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
@@ -137,12 +137,11 @@ async def incoming_call(
     db.commit()
     db.close()
 
-    twiml = """<?xml version = "1.0" encoding = "UTF-8"
-    <Response>
-        <Say> Thank you for calling. We will be with you shortly.</Say>
-    </Response>"""
+    forward_to = os.getenv("FORWARD_TO")
 
-    return PlainTextResponse(content = twiml, media_type = "application/xml")
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Say>Please hold while we connect your call.</Say><Dial>{forward_to}</Dial></Response>'
+
+    return Response(content = twiml, media_type = "application/xml")
 
 
 @app.get("/calls/summary")
@@ -171,3 +170,4 @@ def get_summary():
         "assigned": assigned,
         "spam": spam
     }
+
