@@ -1,4 +1,5 @@
-from fastapi import FastAPI , HTTPException
+from fastapi import FastAPI , HTTPException, Form
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, String, Integer, Text
@@ -115,6 +116,33 @@ def mark_spam(call_id: int):
     db.close()
 
     return {"message": f"Call {call_id} marked as spam"}
+
+
+@app.post("/incoming-call")
+async def incoming_call(
+    From: str = Form(...),
+    CallSid: str = Form(...),
+    CallStatus: str = Form(...)
+):
+    db = SessionLocal()
+
+    new_call = CallLog(
+        caller_number = From,
+        status = "new",
+        assigned_to = "unassigned",
+        notes = "Incoming call - awaiting assignment"
+    )
+
+    db.add(new_call)
+    db.commit()
+    db.close()
+
+    twiml = """<?xml version = "1.0" encoding = "UTF-8"
+    <Response>
+        <Say> Thank you for calling. We will be with you shortly.</Say>
+    </Response>"""
+
+    return PlainTextResponse(content = twiml, media_type = "application/xml")
 
 
 @app.get("/calls/summary")
