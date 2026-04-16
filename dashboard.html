@@ -32,7 +32,7 @@
             <button onclick = "assignCall(${call.id}, 'Mike')">
                 Assign to Mike
             </button>
-            <button onclick = "markSpam(${call.id})">
+            <button onclick = "markSpam(${call.id}, '${call.caller_number}')">
                 Mark Spam
             </button>
             <hr>
@@ -57,16 +57,21 @@
         })
     }
 
-    function markSpam(callId) {
+    function markSpam(callId, callerNumber) {
         fetch(`http://localhost:8000/calls/${callId}/mark-spam`, {
             method: "PUT",
-            headers: {
-                "Content-Type": "application/json"
-            }
+            headers: { "Content_Type": "application/json" }
+        })
+        .then(response => response.json())
+        .then(() => {
+            return fetch(`http://localhost:8000/filtered-numbers?phone_number=${callerNumber}&category=spam&label=Spam`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json"}
+            })
         })
         .then(response => response.json())
         .then(data => {
-            alert(data.message)
+            alert("Number blocked - future calls will be rejected automatically")
             location.reload()
         })
     }
