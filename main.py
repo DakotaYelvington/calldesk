@@ -2,11 +2,12 @@ from fastapi import FastAPI , HTTPException, Form
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Integer, Text
+from sqlalchemy import create_engine, Column, String, Integer, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from dotenv import load_dotenv
+from twilio.rest import Client
 import os
 
 load_dotenv()
@@ -98,16 +99,36 @@ def assign_call(call_id: int, assignment: AssignCall):
     db = SessionLocal()
 
     call = db.query(CallLog).filter(CallLog.id == call_id).first()
-
     if not call:
         db.close()
-        raise HTTPException(status_code = 404, detail = "Call not found")
-    
+        raise HTTPException(status_code=404, detail="Call not found")
+
     call.assigned_to = assignment.employee
     call.status = "assigned"
     db.commit()
-    db.close()
 
+    employee = db.query(Employee).filter(
+        Employee.full_name == assignment.employee,
+        Employee.is_active == True
+    ).first()
+
+    if employee:
+        try:
+            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
+
+            client = Client(account_sid, auth_token)
+            client.messages.create(
+                body=f"New job assigned to you!\nCaller: {call.caller_number}\nNotes: {call.notes}\nCheck the app for details.",
+                from_=twilio_number,
+                to=employee.phone_number
+            )
+            print(f"SMS sent to {employee.full_name} at {employee.phone_number}")
+        except Exception as e:
+            print(f"SMS failed: {e}")
+
+    db.close()
     return {"message": f"Call {call_id} assigned to {assignment.employee}"}
 
 #------Mark Spam------
@@ -244,6 +265,14 @@ def delete_filtered_number(number_id: int):
     db.commit()
     db.close()
     return {"message": "Number removed"}
+
+#------Employee------
+class Employee(Base):
+    __tablename__ = "employees"
+    id = Column(Integer, primary_key=True)
+    full_name = Column(String)
+    phone_number = Column(String)
+    is_active = Column(Boolean, default=True)
 #------Call Summary------
 
 @app.get("/calls/summary")
@@ -272,4 +301,3 @@ def get_summary():
         "assigned": assigned,
         "spam": spam
     }
-

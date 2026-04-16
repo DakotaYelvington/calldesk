@@ -74,6 +74,10 @@
             alert("Number blocked - future calls will be rejected automatically")
             location.reload()
         })
+        .catch(error => {
+            alert("Call marked as spam")
+            location.reload()
+        })
     }
 </script>
 </body>
