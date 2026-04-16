@@ -26,6 +26,14 @@ class CallLog(Base):
     assigned_to = Column(String)
     notes = Column(Text)
 
+class FilteredNumber(Base):
+    __tablename__ = "filtered_numbers"
+
+    id = Column(Integer, primary_key=True)
+    phone_number = Column(String, unique=True)
+    category = Column(String)
+    label = Column(String)
+
 class NewCall(BaseModel):
     caller_number: str
     status: str = "new"
@@ -41,6 +49,8 @@ app.add_middleware(
     allow_methods = ["*"],
     allow_headers = ["*"]
 )
+
+#------Calls------
 
 @app.get("/calls")
 def get_calls():
@@ -81,7 +91,7 @@ def create_call(call: NewCall):
 class AssignCall(BaseModel):
     employee: str
 
-
+#------Assign-------
 
 @app.put("/calls/{call_id}/assign")
 def assign_call(call_id: int, assignment: AssignCall):
@@ -100,6 +110,7 @@ def assign_call(call_id: int, assignment: AssignCall):
 
     return {"message": f"Call {call_id} assigned to {assignment.employee}"}
 
+#------Mark Spam------
 
 @app.put("/calls/{call_id}/mark-spam")
 def mark_spam(call_id: int):
@@ -118,6 +129,11 @@ def mark_spam(call_id: int):
     return {"message": f"Call {call_id} marked as spam"}
 
 
+
+
+
+#------Incoming Call------
+
 @app.post("/incoming-call")
 async def incoming_call(
     From: str = Form(...),
@@ -125,24 +141,110 @@ async def incoming_call(
     CallStatus: str = Form(...)
 ):
     db = SessionLocal()
-
-    new_call = CallLog(
-        caller_number = From,
-        status = "new",
-        assigned_to = "unassigned",
-        notes = "Incoming call - awaiting assignment"
-    )
-
-    db.add(new_call)
-    db.commit()
-    db.close()
-
     forward_to = os.getenv("FORWARD_TO")
 
-    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Say>Please hold while we connect your call.</Say><Dial>{forward_to}</Dial></Response>'
+    twiml_forward = f'<?xml version="1.0" encoding="UTF-8"?><Response><Say>Please hold while we connect your call.</Say><Dial>{forward_to}</Dial></Response>'
 
-    return Response(content = twiml, media_type = "application/xml")
+    filtered = db.query(FilteredNumber).filter(
+        FilteredNumber.phone_number == From
+    ).first()
 
+    if filtered and filtered.category == "spam":
+        db.close()
+        twiml_reject = "<?xml version='1.0' encoding='UTF-8'?><Response><Reject/></Response>"
+        return Response(content=twiml_reject, media_type='application/xml')
+    
+    elif filtered and filtered.category == "personal":
+        new_call = CallLog(
+            caller_number = From,
+            status = "personal",
+            assigned_to = "N/A",
+            notes = f'Personal call from {filtered.label}'
+        )
+        db.add(new_call)
+        db.commit()
+        db.close()
+        return Response(content=twiml_forward, media_type="application/xml")
+    
+    elif filtered and filtered.category == "employee":
+        new_call = CallLog(
+            caller_number = From,
+            status = "employee",
+            assigned_to = filtered.label,
+            notes = f'Internal call from {filtered.label}'
+        )
+        db.add(new_call)
+        db.commit()
+        db.close()
+        return Response(content=twiml_forward, media_type="application/xml")
+    
+    else:
+        new_call = CallLog(
+            caller_number = From,
+            status = "new",
+            assigned_to = "unassigned",
+            notes = "Incoming call - awaiting assignment"
+        )
+        db.add(new_call)
+        db.commit()
+        db.close()
+        return Response(content=twiml_forward, media_type="application/xml")
+    
+#------Filtered Numbers------
+
+@app.get("/filtered_numbers")
+def get_filtered_numbers():
+    db = SessionLocal()
+    numbers = db.query(FilteredNumber).all()
+    db.close()
+    return [
+        {
+            "id": n.id,
+            "phone_number": n.phone_number,
+            "category": n.category,
+            "label": n.label
+        }
+        for n in numbers
+    ]
+
+#------Add Filtered Numbers------
+
+@app.post("/filtered-numbers")
+def add_filtered_number(phone_number: str, category: str, label: str = ""):
+    if category not in ["spam", "personal", "employee"]:
+        raise HTTPException(status_code=400, detail="Category must be spam, personal, or employee")
+    db = SessionLocal()
+    existing = db.query(FilteredNumber).filter(
+        FilteredNumber.phone_number == phone_number
+    ).first()
+    if existing:
+        db.close()
+        raise HTTPException(status_code=400, detail="Number already exists")
+    new_number = FilteredNumber(
+        phone_number=phone_number,
+        category=category,
+        label=label
+    )
+    db.add(new_number)
+    db.commit()
+    db.close()
+    return {"message": f"{phone_number} added as {category}"}
+
+#------Delete Filtered Number------
+@app.delete("/filtered-numbers/{number_id}")
+def delete_filtered_number(number_id: int):
+    db = SessionLocal()
+    number = db.query(FilteredNumber).filter(
+        FilteredNumber.id == number_id
+    ).first()
+    if not number:
+        db.close()
+        raise HTTPException(status_code=404, detail="Number not found")
+    db.delete(number)
+    db.commit()
+    db.close()
+    return {"message": "Number removed"}
+#------Call Summary------
 
 @app.get("/calls/summary")
 def get_summary():
