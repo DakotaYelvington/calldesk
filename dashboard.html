@@ -7,78 +7,308 @@
 </head>
 <body>
     
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CallDesk</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700;800;900&family=Barlow+Condensed:wght@700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
 
-<h1>CallDesk</h1>
-<div id = call-list>Loading Calls...</div>
+  <header>
+    <div class="header-inner">
+      <div class="header-top">
+        <div class="logo">
+          <div class="logo-icon">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="black">
+    <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
+  </svg>
+</div>
+          <div class="logo-text">Call<span>Desk</span></div>
+        </div>
+        <div class="live-pill">
+          <div class="live-dot"></div>
+          Live
+        </div>
+      </div>
 
-<script>
-    fetch("http://localhost:8000/calls")
-        .then(response => response.json())
-        .then(calls => {
-        
+      <div class="stats">
+        <div class="stat highlight">
+          <div class="stat-val orange" id="s-new">0</div>
+          <div class="stat-label">New</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val yellow" id="s-assigned">0</div>
+          <div class="stat-label">Out</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val green" id="s-done">0</div>
+          <div class="stat-label">Done</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val muted" id="s-spam">0</div>
+          <div class="stat-label">Blocked</div>
+        </div>
+      </div>
 
-        const list = document.getElementById("call-list")
+      <div class="filter-row">
+        <button class="filter-btn active" onclick="filterCalls('all', this)">All</button>
+        <button class="filter-btn" onclick="filterCalls('new', this)">🟠 New</button>
+        <button class="filter-btn" onclick="filterCalls('assigned', this)">🟡 Assigned</button>
+        <button class="filter-btn" onclick="filterCalls('completed', this)">🟢 Done</button>
+        <button class="filter-btn" onclick="filterCalls('personal', this)">🔵 Personal</button>
+        <button class="filter-btn" onclick="filterCalls('spam', this)">⚫ Spam</button>
+      </div>
+    </div>
+  </header>
 
-        list.innerHTML = ""
+  <div class="date-label" id="date-label"></div>
 
-        calls.forEach(call => {
-            const card = document.createElement("div")
+  <div class="call-list" id="call-list">
+    <div class="loading">Loading calls...</div>
+  </div>
 
-            card.innerHTML = `
-            <p>📞 ${call.caller_number}</p>
-            <p>Status: ${call.status}</p>
-            <p>Assigned to: ${call.assigned_to}</p>
-            <p>Notes: ${call.notes}</p>
-            <button onclick = "assignCall(${call.id}, 'Mike')">
-                Assign to Mike
-            </button>
-            <button onclick = "markSpam(${call.id}, '${call.caller_number}')">
-                Mark Spam
-            </button>
-            <hr>
-        `
+  <nav class="bottom-nav">
+    <div class="nav-item active">
+      <span class="nav-icon">📋</span>
+      <div class="nav-label">Calls</div>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">👷</span>
+      <div class="nav-label">Team</div>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">🚫</span>
+      <div class="nav-label">Blocked</div>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">⚙️</span>
+      <div class="nav-label">Settings</div>
+    </div>
+  </nav>
 
-        list.appendChild(card)
-        })
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── SET DATE LABEL ──
+    const today = new Date()
+    document.getElementById("date-label").textContent = today.toLocaleDateString('en-US', {
+      weekday: 'long', month: 'short', day: 'numeric'
     })
 
-    function assignCall(callId, employee) {
-        fetch(`http://localhost:8000/calls/${callId}/assign`, {
-            method:"PUT",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({employee: employee})
-        })
+    // ── FETCH AND DISPLAY CALLS ──
+    function loadCalls() {
+      fetch("http://localhost:8000/calls")
         .then(response => response.json())
-        .then(data => {
-            alert(data.message)
-            location.reload()
+        .then(calls => {
+          const list = document.getElementById("call-list")
+          list.innerHTML = ""
+
+          if (calls.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No calls yet today</div></div>'
+            return
+          }
+
+          updateStats(calls)
+
+          calls.forEach(call => {
+            const card = document.createElement("div")
+            const statusClass = getStatusClass(call.status)
+            const badgeClass = getBadgeClass(call.status)
+
+            card.className = `call-card ${statusClass}`
+            card.dataset.status = call.status
+            card.id = `card-${call.id}`
+
+            card.innerHTML = `
+              <div class="card-top" onclick="toggleCard('card-${call.id}')">
+                <div class="card-row1">
+                  <div>
+                    <div class="caller-name">Unknown Caller</div>
+                    <div class="caller-num">${call.caller_number}</div>
+                  </div>
+                  <div class="card-right">
+                    <span class="badge ${badgeClass}">${call.status.toUpperCase()}</span>
+                    <span class="time-stamp">${formatTime(call.timestamp)}</span>
+                  </div>
+                </div>
+                <div class="card-job"><span class="job-icon">📞</span> ${call.notes}</div>
+                ${call.assigned_to !== 'Unassigned' && call.assigned_to !== 'N/A' ? `<div class="assigned-label">→ ${call.assigned_to}</div>` : ''}
+              </div>
+              <div class="card-divider"></div>
+              <div class="card-actions">
+                ${call.status !== 'spam' && call.status !== 'completed' ? `
+                  <button class="btn btn-primary" onclick="showAssign('card-${call.id}')">Assign →</button>
+                  <button class="btn btn-success" onclick="markDone(${call.id}, 'card-${call.id}')">✓ Done</button>
+                  <button class="btn btn-danger" onclick="markSpam(${call.id}, '${call.caller_number}', 'card-${call.id}')">✕ Spam</button>
+                ` : ''}
+                ${call.status === 'spam' ? `
+                  <button class="btn" onclick="unspam(${call.id}, 'card-${call.id}')">↩ Not Spam</button>
+                ` : ''}
+              </div>
+              <div class="assign-panel" id="ap-card-${call.id}">
+                <div class="assign-title">Send job to</div>
+                <div class="emp-grid" id="emp-grid-${call.id}">
+                  <div class="loading-emps">Loading employees...</div>
+                </div>
+              </div>
+            `
+            list.appendChild(card)
+          })
         })
     }
 
-    function markSpam(callId, callerNumber) {
-        fetch(`http://localhost:8000/calls/${callId}/mark-spam`, {
-            method: "PUT",
-            headers: { "Content_Type": "application/json" }
-        })
+    // ── LOAD EMPLOYEES ──
+    function showAssign(cardId) {
+      const ap = document.getElementById('ap-' + cardId)
+      ap.classList.toggle('open')
+
+      const callId = cardId.replace('card-', '')
+      const grid = document.getElementById(`emp-grid-${callId}`)
+
+      fetch("http://localhost:8000/employees")
         .then(response => response.json())
-        .then(() => {
-            return fetch(`http://localhost:8000/filtered-numbers?phone_number=${callerNumber}&category=spam&label=Spam`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json"}
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            alert("Number blocked - future calls will be rejected automatically")
-            location.reload()
-        })
-        .catch(error => {
-            alert("Call marked as spam")
-            location.reload()
+        .then(employees => {
+          grid.innerHTML = ""
+          employees.forEach(emp => {
+            const btn = document.createElement("button")
+            btn.className = "emp-btn"
+            btn.textContent = emp.full_name
+            btn.onclick = () => assignTo(callId, emp.full_name, cardId)
+            grid.appendChild(btn)
+          })
         })
     }
-</script>
+
+    // ── ASSIGN CALL ──
+    function assignTo(callId, name, cardId) {
+      fetch(`http://localhost:8000/calls/${callId}/assign`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee: name })
+      })
+      .then(response => response.json())
+      .then(data => {
+        showToast(`Sent to ${name}`, 'orange')
+        loadCalls()
+      })
+    }
+
+    // ── MARK DONE ──
+    function markDone(callId, cardId) {
+      fetch(`http://localhost:8000/calls/${callId}/assign`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee: "Completed" })
+      })
+      .then(response => response.json())
+      .then(() => {
+        showToast('Job marked complete ✓', 'green')
+        loadCalls()
+      })
+    }
+
+    // ── MARK SPAM ──
+    function markSpam(callId, callerNumber, cardId) {
+      fetch(`http://localhost:8000/calls/${callId}/mark-spam`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" }
+      })
+      .then(response => response.json())
+      .then(() => {
+        return fetch(`http://localhost:8000/filtered-numbers?phone_number=${callerNumber}&category=spam&label=Spam`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        })
+      })
+      .then(() => {
+        showToast('Number blocked 🚫', 'orange')
+        loadCalls()
+      })
+      .catch(() => {
+        showToast('Call marked as spam')
+        loadCalls()
+      })
+    }
+
+    // ── UNMARK SPAM ──
+    function unspam(callId, cardId) {
+      fetch(`http://localhost:8000/calls/${callId}/assign`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee: "Unassigned" })
+      })
+      .then(() => {
+        showToast('Removed from spam list')
+        loadCalls()
+      })
+    }
+
+    // ── FILTER ──
+    function filterCalls(status, btn) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      document.querySelectorAll('.call-card').forEach(card => {
+        card.style.display = (status === 'all' || card.dataset.status === status) ? 'block' : 'none'
+      })
+    }
+
+    // ── TOGGLE CARD ──
+    function toggleCard(id) {
+      const card = document.getElementById(id)
+      card.classList.toggle('expanded')
+      const ap = document.getElementById('ap-' + id)
+      if (ap) ap.classList.remove('open')
+    }
+
+    // ── UPDATE STATS ──
+    function updateStats(calls) {
+      const counts = { new: 0, assigned: 0, completed: 0, spam: 0 }
+      calls.forEach(c => {
+        if (counts[c.status] !== undefined) counts[c.status]++
+      })
+      document.getElementById('s-new').textContent = counts.new
+      document.getElementById('s-assigned').textContent = counts.assigned
+      document.getElementById('s-done').textContent = counts.completed
+      document.getElementById('s-spam').textContent = counts.spam
+    }
+
+    // ── HELPERS ──
+    function getStatusClass(status) {
+      const map = { new: 'new-customer', assigned: 'assigned', completed: 'completed', spam: 'spam', personal: 'personal', employee: 'personal' }
+      return map[status] || 'new-customer'
+    }
+
+    function getBadgeClass(status) {
+      const map = { new: 'badge-new', assigned: 'badge-assigned', completed: 'badge-done', spam: 'badge-spam', personal: 'badge-personal', employee: 'badge-personal' }
+      return map[status] || 'badge-new'
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return ''
+      const date = new Date(timestamp)
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    function showToast(msg, type = '') {
+      const t = document.getElementById('toast')
+      t.textContent = msg
+      t.className = 'toast show' + (type ? ' ' + type : '')
+      setTimeout(() => t.className = 'toast', 2600)
+    }
+
+    // ── LOAD ON START ──
+    loadCalls()
+
+    // ── AUTO REFRESH EVERY 30 SECONDS ──
+    setInterval(loadCalls, 30000)
+  </script>
+
+</body>
+</html>
+
 </body>
 </html>

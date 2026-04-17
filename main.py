@@ -273,6 +273,36 @@ class Employee(Base):
     full_name = Column(String)
     phone_number = Column(String)
     is_active = Column(Boolean, default=True)
+
+
+@app.get("/employees")
+def get_employees():
+    db = SessionLocal()
+    employees = db.query(Employee).filter(
+        Employee.is_active == True
+    ).all()
+    db.close()
+    return [
+        {
+            "id": e.id,
+            "full_name": e.full_name,
+            "phone_number": e.phone_number
+        }
+        for e in employees
+    ]
+
+@app.post("/employees")
+def add_employee(full_name: str, phone_number: str):
+    db = SessionLocal()
+    new_employee = Employee(
+        full_name=full_name,
+        phone_number=phone_number
+    )
+    db.add(new_employee)
+    db.commit()
+    db.close()
+    return {"message": f"{full_name} added successfully"}
+
 #------Call Summary------
 
 @app.get("/calls/summary")
