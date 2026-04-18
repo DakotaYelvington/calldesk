@@ -1,6 +1,7 @@
-from fastapi import FastAPI , HTTPException, Form
+from fastapi import FastAPI , HTTPException, Form, Header, Depends
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, String, Integer, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
@@ -8,6 +9,12 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from dotenv import load_dotenv
 from twilio.rest import Client
+from typing import Optional
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
 import os
 
 load_dotenv()
@@ -41,8 +48,51 @@ class NewCall(BaseModel):
     assigned_to: str = "unassigned"
     notes: str = ""
 
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI()
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    api_key = os.getenv("API_KEY")
+    if x_api_key != api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key"
+        )
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+def get_current_user(x_token: Optional[str] = Header(None)):
+    if not x_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return verify_token(x_token)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,7 +104,8 @@ app.add_middleware(
 #------Calls------
 
 @app.get("/calls")
-def get_calls():
+@limiter.limit("30/minute")
+def get_calls(request: Request, username: str = Depends(get_current_user)):
     db = SessionLocal()
     calls = db.query(CallLog).all()
     db.close()
@@ -95,7 +146,7 @@ class AssignCall(BaseModel):
 #------Assign-------
 
 @app.put("/calls/{call_id}/assign")
-def assign_call(call_id: int, assignment: AssignCall):
+def assign_call(call_id: int, assignment: AssignCall, username: str = Depends(get_current_user)):
     db = SessionLocal()
 
     call = db.query(CallLog).filter(CallLog.id == call_id).first()
@@ -134,7 +185,7 @@ def assign_call(call_id: int, assignment: AssignCall):
 #------Mark Spam------
 
 @app.put("/calls/{call_id}/mark-spam")
-def mark_spam(call_id: int):
+def mark_spam(call_id: int, username: str = Depends(get_current_user)):
     db = SessionLocal()
 
     call = db.query(CallLog).filter(CallLog.id == call_id).first()
@@ -214,7 +265,7 @@ async def incoming_call(
 #------Filtered Numbers------
 
 @app.get("/filtered_numbers")
-def get_filtered_numbers():
+def get_filtered_numbers(username: str = Depends(get_current_user)):
     db = SessionLocal()
     numbers = db.query(FilteredNumber).all()
     db.close()
@@ -231,7 +282,7 @@ def get_filtered_numbers():
 #------Add Filtered Numbers------
 
 @app.post("/filtered-numbers")
-def add_filtered_number(phone_number: str, category: str, label: str = ""):
+def add_filtered_number(phone_number: str, category: str, label: str = "", username: str = Depends(get_current_user)):
     if category not in ["spam", "personal", "employee"]:
         raise HTTPException(status_code=400, detail="Category must be spam, personal, or employee")
     db = SessionLocal()
@@ -253,7 +304,7 @@ def add_filtered_number(phone_number: str, category: str, label: str = ""):
 
 #------Delete Filtered Number------
 @app.delete("/filtered-numbers/{number_id}")
-def delete_filtered_number(number_id: int):
+def delete_filtered_number(number_id: int, username: str = Depends(get_current_user)):
     db = SessionLocal()
     number = db.query(FilteredNumber).filter(
         FilteredNumber.id == number_id
@@ -274,9 +325,19 @@ class Employee(Base):
     phone_number = Column(String)
     is_active = Column(Boolean, default=True)
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True)
+    hashed_password = Column(String)
+    business_name = Column(String)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(String)
+
 
 @app.get("/employees")
-def get_employees():
+def get_employees(username: str = Depends(get_current_user)):
     db = SessionLocal()
     employees = db.query(Employee).filter(
         Employee.is_active == True
@@ -292,7 +353,7 @@ def get_employees():
     ]
 
 @app.post("/employees")
-def add_employee(full_name: str, phone_number: str):
+def add_employee(full_name: str, phone_number: str, username: str = Depends(get_current_user)):
     db = SessionLocal()
     new_employee = Employee(
         full_name=full_name,
@@ -306,7 +367,7 @@ def add_employee(full_name: str, phone_number: str):
 #------Call Summary------
 
 @app.get("/calls/summary")
-def get_summary():
+def get_summary(username: str = Depends(get_current_user)):
     db = SessionLocal()
 
     total = db.query(CallLog).count()
@@ -330,4 +391,58 @@ def get_summary():
         "new": new,
         "assigned": assigned,
         "spam": spam
+    }
+class UserRegister(BaseModel):
+    username: str
+    password: str
+    business_name: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+#------Register------
+@app.post("/register")
+def register(user: UserRegister):
+    db = SessionLocal()
+
+    existing = db.query(User).filter(
+        User.username == user.username
+    ).first()
+
+    if existing:
+        db.close()
+        raise HTTPException(status_code=400, detail="Username is already taken")
+    
+    new_user = User(
+        username=user.username,
+        hashed_password=hash_password(user.password),
+        business_name=user.business_name
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.close()
+
+    return {"message": "Account created successfully"}
+
+#------Login------
+
+@app.post("/login")
+def login(user: UserLogin):
+    db = SessionLocal()
+    existing = db.query(User).filter(
+        User.username == user.username
+    ).first()
+    if not existing or not verify_password(user.password, existing.hashed_password):
+        db.close()
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    db.close()
+
+    token = create_token({"sub": existing.username})
+    return {
+        "token": token,
+        "username": existing.username,
+        "business_name": existing.business_name
     }

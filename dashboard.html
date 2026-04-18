@@ -93,15 +93,28 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    // ── SET DATE LABEL ──
+
+//------Get Token From Session------
+    const token = sessionStorage.getItem("token")
+    if (!token) {
+        window.location.href = "login.html"
+    }
+
+    const AUTH_HEADERS = {
+        "Content-Type": "application/json",
+        "x-token": token
+    }
+//------Set Date Label------
     const today = new Date()
     document.getElementById("date-label").textContent = today.toLocaleDateString('en-US', {
       weekday: 'long', month: 'short', day: 'numeric'
     })
 
-    // ── FETCH AND DISPLAY CALLS ──
+//------Fetch and Display Calls------
     function loadCalls() {
-      fetch("http://localhost:8000/calls")
+      fetch("http://localhost:8000/calls", {
+        headers: AUTH_HEADERS
+      })
         .then(response => response.json())
         .then(calls => {
           const list = document.getElementById("call-list")
@@ -161,7 +174,7 @@
         })
     }
 
-    // ── LOAD EMPLOYEES ──
+//------Load Employees-------
     function showAssign(cardId) {
       const ap = document.getElementById('ap-' + cardId)
       ap.classList.toggle('open')
@@ -169,7 +182,9 @@
       const callId = cardId.replace('card-', '')
       const grid = document.getElementById(`emp-grid-${callId}`)
 
-      fetch("http://localhost:8000/employees")
+      fetch("http://localhost:8000/employees", {
+        headers: AUTH_HEADERS
+      })
         .then(response => response.json())
         .then(employees => {
           grid.innerHTML = ""
@@ -183,11 +198,11 @@
         })
     }
 
-    // ── ASSIGN CALL ──
+//------Assign Calls------
     function assignTo(callId, name, cardId) {
       fetch(`http://localhost:8000/calls/${callId}/assign`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: AUTH_HEADERS,
         body: JSON.stringify({ employee: name })
       })
       .then(response => response.json())
@@ -197,11 +212,11 @@
       })
     }
 
-    // ── MARK DONE ──
+//------Mark Done------
     function markDone(callId, cardId) {
       fetch(`http://localhost:8000/calls/${callId}/assign`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: AUTH_HEADERS,
         body: JSON.stringify({ employee: "Completed" })
       })
       .then(response => response.json())
@@ -211,17 +226,17 @@
       })
     }
 
-    // ── MARK SPAM ──
+//------Mark Spam------
     function markSpam(callId, callerNumber, cardId) {
       fetch(`http://localhost:8000/calls/${callId}/mark-spam`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" }
+        headers: AUTH_HEADERS
       })
       .then(response => response.json())
       .then(() => {
         return fetch(`http://localhost:8000/filtered-numbers?phone_number=${callerNumber}&category=spam&label=Spam`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: AUTH_HEADERS
         })
       })
       .then(() => {
@@ -234,7 +249,7 @@
       })
     }
 
-    // ── UNMARK SPAM ──
+//------Undo Spam------
     function unspam(callId, cardId) {
       fetch(`http://localhost:8000/calls/${callId}/assign`, {
         method: "PUT",
@@ -247,7 +262,7 @@
       })
     }
 
-    // ── FILTER ──
+//------Filter Calls------
     function filterCalls(status, btn) {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
@@ -256,7 +271,7 @@
       })
     }
 
-    // ── TOGGLE CARD ──
+//------Toggle Card------
     function toggleCard(id) {
       const card = document.getElementById(id)
       card.classList.toggle('expanded')
@@ -264,7 +279,7 @@
       if (ap) ap.classList.remove('open')
     }
 
-    // ── UPDATE STATS ──
+//------Update Stats------
     function updateStats(calls) {
       const counts = { new: 0, assigned: 0, completed: 0, spam: 0 }
       calls.forEach(c => {
@@ -276,7 +291,7 @@
       document.getElementById('s-spam').textContent = counts.spam
     }
 
-    // ── HELPERS ──
+//------Helpers------
     function getStatusClass(status) {
       const map = { new: 'new-customer', assigned: 'assigned', completed: 'completed', spam: 'spam', personal: 'personal', employee: 'personal' }
       return map[status] || 'new-customer'
@@ -300,10 +315,10 @@
       setTimeout(() => t.className = 'toast', 2600)
     }
 
-    // ── LOAD ON START ──
+//------Load Calls on Start------
     loadCalls()
 
-    // ── AUTO REFRESH EVERY 30 SECONDS ──
+//------Auto Refresh Every 30 Seconds------
     setInterval(loadCalls, 30000)
   </script>
 
